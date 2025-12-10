@@ -20,41 +20,31 @@ macro_rules! dprintln {
 pub enum Instruction {
     /// `>` -- Increment the data pointer by one
     /// (to point to the next cell to the right).
-    Next,
+    Next = b'>' as isize,
     /// `<` -- Decrement the data pointer by one
     /// (to point to the next cell to the left).
-    Prev,
+    Prev = b'<' as isize,
     /// `+` -- Increment the byte at the data pointer by one.
-    Incr,
+    Incr = b'+' as isize,
     /// `-` -- Decrement the byte at the data pointer by one.
-    Decr,
+    Decr = b'-' as isize,
     /// `.` -- Output the byte at the data pointer.
-    Give,
+    Give = b'.' as isize,
     /// `,` -- Accept one byte of input, storing its value in the byte at the data pointer.
-    Take,
+    Take = b',' as isize,
     /// `[` -- If the byte at the data pointer is zero,
     /// then instead of moving the instruction pointer forward to the next command,
     /// jump it forward to the command after the matching `]` command.
-    Fore,
+    Fore = b'[' as isize,
     /// `]` -- If the byte at the data pointer is nonzero,
     /// then instead of moving the instruction pointer forward to the next command,
     /// jump it back to the command after the matching `[` command.
-    Back,
+    Back = b']' as isize,
 }
 
 impl std::fmt::Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Next => '>',
-            Self::Prev => '<',
-            Self::Incr => '+',
-            Self::Decr => '-',
-            Self::Give => '.',
-            Self::Take => ',',
-            Self::Fore => '[',
-            Self::Back => ']',
-        }
-        .fmt(f)
+        char::from(*self as u8).fmt(f)
     }
 }
 
@@ -174,13 +164,11 @@ impl Instruction {
     }
 
     #[inline]
-    pub fn slice_from_bytes<'a, const N: usize>(s: &[u8; N], buf: &'a mut [Self; N]) -> &'a [Self] {
+    pub fn vec_from_bytes(s: &[u8]) -> Vec<Self> {
         let iter = Self::converter(s.iter().copied());
-        let len = iter.len();
-        for (ptr, item) in buf.iter_mut().zip(iter) {
-            *ptr = item;
-        }
-        &buf[..len]
+        let mut v = Vec::with_capacity(iter.len());
+        v.extend(iter);
+        v
     }
 }
 
@@ -438,7 +426,7 @@ pub struct Cli {
     path: PathBuf,
 }
 
-fn main() {
+fn main() -> Result<(), ()> {
     let Cli { mem, path } = Cli::parse();
     let code = Instruction::vec_from_str(
         &std::fs::read_to_string(path).expect("failed to read code from file"),
@@ -454,18 +442,20 @@ fn main() {
     }
 
     match Program::compile(&code) {
-        Err(e) => eprintln!("compile error: {e}"),
+        Err(e) => {
+            eprintln!("compile error: {e}");
+            Err(())
+        }
         Ok(prgm) => {
             let mut memory = vec![0u8; mem];
-
             let mut env = Environment::new(&mut memory, &prgm, std::io::stdin(), std::io::stdout());
-            let err = env.run().err();
-            if err.is_some() {
-                dprintln!(" ERR");
-            }
-
-            if let Some(err) = err {
-                eprintln!("runtime error: {err}");
+            match env.run() {
+                Ok(()) => Ok(()),
+                Err(e) => {
+                    dprintln!(" ERR");
+                    eprintln!("runtime error: {e}");
+                    Err(())
+                }
             }
         }
     }
